@@ -1,0 +1,483 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Python Car Racing Game - Web Edition</title>
+
+<style>
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+body {
+    background: #10151c;
+    color: white;
+    font-family: Arial, sans-serif;
+    text-align: center;
+    min-height: 100vh;
+    padding: 15px;
+}
+
+h1 {
+    margin: 10px 0;
+    color: #00e5ff;
+    font-size: 27px;
+}
+
+.subtitle {
+    color: #aaa;
+    margin-bottom: 15px;
+}
+
+.game-container {
+    position: relative;
+    width: min(100%, 500px);
+    margin: auto;
+    border: 3px solid #333;
+    border-radius: 12px;
+    overflow: hidden;
+    background: #27843b;
+}
+
+canvas {
+    display: block;
+    width: 100%;
+    height: auto;
+}
+
+.controls {
+    max-width: 500px;
+    margin: 15px auto;
+    display: flex;
+    justify-content: center;
+    gap: 12px;
+    flex-wrap: wrap;
+}
+
+button {
+    border: none;
+    border-radius: 10px;
+    padding: 13px 20px;
+    background: #00bcd4;
+    color: #081116;
+    font-weight: bold;
+    font-size: 16px;
+    cursor: pointer;
+    touch-action: none;
+}
+
+button:hover {
+    background: #00e5ff;
+}
+
+.direction-controls {
+    display: flex;
+    justify-content: center;
+    gap: 25px;
+    margin: 15px auto;
+}
+
+.direction-controls button {
+    width: 85px;
+    font-size: 24px;
+}
+
+.instructions {
+    color: #bbb;
+    line-height: 1.8;
+    font-size: 14px;
+    margin: 12px auto;
+}
+</style>
+</head>
+
+<body>
+
+<h1>🏎️ CAR RACING GAME</h1>
+<p class="subtitle">Dodge traffic. Survive. Beat your high score!</p>
+
+<div class="game-container">
+    <canvas id="game" width="500" height="700"></canvas>
+</div>
+
+<div class="controls">
+    <button id="startBtn">▶ Start / Restart</button>
+    <button id="pauseBtn">⏸ Pause</button>
+</div>
+
+<div class="direction-controls">
+    <button data-key="left">⬅️</button>
+    <button data-key="up">⬆️</button>
+    <button data-key="down">⬇️</button>
+    <button data-key="right">➡️</button>
+</div>
+
+<p class="instructions">
+    Keyboard: Arrow keys or WASD to drive<br>
+    P = Pause | R = Restart<br>
+    Avoid the red cars!
+</p>
+
+<script>
+const canvas = document.getElementById("game");
+const ctx = canvas.getContext("2d");
+
+const WIDTH = 500;
+const HEIGHT = 700;
+
+const ROAD_LEFT = 70;
+const ROAD_WIDTH = 360;
+const LANE_WIDTH = ROAD_WIDTH / 3;
+
+const CAR_W = 45;
+const CAR_H = 75;
+
+const keys = {};
+
+let player = {
+    x: WIDTH / 2 - CAR_W / 2,
+    y: HEIGHT - 120
+};
+
+let enemy = {
+    x: 0,
+    y: -100
+};
+
+let score = 0;
+let speed = 5;
+let roadLineY = 0;
+
+let running = false;
+let gameOver = false;
+let paused = false;
+
+let lastTime = 0;
+let animationId = null;
+
+let highScore = 0;
+
+try {
+    highScore = Number(localStorage.getItem("carHighScore")) || 0;
+} catch (e) {
+    highScore = 0;
+}
+
+function randomLane() {
+    const lane = Math.floor(Math.random() * 3);
+    return ROAD_LEFT + lane * LANE_WIDTH +
+           (LANE_WIDTH - CAR_W) / 2;
+}
+
+function resetGame() {
+    player.x = WIDTH / 2 - CAR_W / 2;
+    player.y = HEIGHT - 120;
+
+    enemy.x = randomLane();
+    enemy.y = -100;
+
+    score = 0;
+    speed = 5;
+    roadLineY = 0;
+
+    gameOver = false;
+    paused = false;
+    running = true;
+
+    lastTime = 0;
+
+    if (animationId !== null) {
+        cancelAnimationFrame(animationId);
+    }
+
+    animationId = requestAnimationFrame(gameLoop);
+}
+
+function drawCar(x, y, color) {
+    // Car body
+    ctx.fillStyle = color;
+    ctx.beginPath();
+    ctx.roundRect(x, y, CAR_W, CAR_H, 9);
+    ctx.fill();
+
+    // Front windshield
+    ctx.fillStyle = "#b4e5f5";
+    ctx.beginPath();
+    ctx.roundRect(x + 8, y + 10, CAR_W - 16, 18, 4);
+    ctx.fill();
+
+    // Rear window
+    ctx.fillStyle = "#202630";
+    ctx.beginPath();
+    ctx.roundRect(x + 8, y + 37, CAR_W - 16, 20, 3);
+    ctx.fill();
+
+    // Headlights
+    ctx.fillStyle = "#fff7b0";
+    ctx.fillRect(x + 5, y + 3, 9, 5);
+    ctx.fillRect(x + 31, y + 3, 9, 5);
+
+    // Wheels
+    ctx.fillStyle = "#111";
+    ctx.fillRect(x - 3, y + 14, 5, 16);
+    ctx.fillRect(x + CAR_W - 2, y + 14, 5, 16);
+    ctx.fillRect(x - 3, y + 48, 5, 16);
+    ctx.fillRect(x + CAR_W - 2, y + 48, 5, 16);
+}
+
+function drawRoad() {
+    // Grass
+    ctx.fillStyle = "#27843b";
+    ctx.fillRect(0, 0, WIDTH, HEIGHT);
+
+    // Road
+    ctx.fillStyle = "#414141";
+    ctx.fillRect(ROAD_LEFT, 0, ROAD_WIDTH, HEIGHT);
+
+    // Road borders
+    ctx.fillStyle = "#ffdc00";
+    ctx.fillRect(ROAD_LEFT, 0, 5, HEIGHT);
+    ctx.fillRect(ROAD_LEFT + ROAD_WIDTH - 5, 0, 5, HEIGHT);
+
+    // Moving lane markings
+    ctx.fillStyle = "#fff";
+
+    for (let y = -80; y < HEIGHT; y += 80) {
+        const lineY = y + roadLineY;
+
+        for (let lane = 1; lane <= 2; lane++) {
+            const x = ROAD_LEFT + lane * LANE_WIDTH;
+            ctx.fillRect(x - 3, lineY, 6, 40);
+        }
+    }
+}
+
+function drawHUD() {
+    ctx.fillStyle = "#191919";
+    ctx.fillRect(0, 0, WIDTH, 65);
+
+    ctx.fillStyle = "#fff";
+    ctx.font = "bold 28px Arial";
+    ctx.fillText("Score: " + score, 15, 40);
+
+    ctx.fillStyle = "#ffdc00";
+    ctx.font = "20px Arial";
+    ctx.fillText("Speed: " + speed, 350, 38);
+
+    ctx.fillStyle = "#fff";
+    ctx.font = "14px Arial";
+    ctx.fillText("Best: " + highScore, 220, 40);
+}
+
+function drawMessage(title, subtitle) {
+    ctx.fillStyle = "rgba(0,0,0,0.78)";
+    ctx.fillRect(0, 0, WIDTH, HEIGHT);
+
+    ctx.textAlign = "center";
+
+    ctx.fillStyle = "#ff4050";
+    ctx.font = "bold 36px Arial";
+    ctx.fillText(title, WIDTH / 2, 290);
+
+    ctx.fillStyle = "#fff";
+    ctx.font = "bold 24px Arial";
+    ctx.fillText(subtitle, WIDTH / 2, 335);
+
+    ctx.font = "19px Arial";
+    ctx.fillText("Press R or Restart to play", WIDTH / 2, 385);
+
+    ctx.textAlign = "left";
+}
+
+function update(delta) {
+    // Normalize movement for different frame rates.
+    const step = delta / 16.667;
+
+    const moveSpeed = 6 * step;
+    const verticalSpeed = 4 * step;
+
+    if (keys.left) player.x -= moveSpeed;
+    if (keys.right) player.x += moveSpeed;
+    if (keys.up) player.y -= verticalSpeed;
+    if (keys.down) player.y += verticalSpeed;
+
+    // Keep player inside the road.
+    player.x = Math.max(
+        ROAD_LEFT + 5,
+        Math.min(
+            player.x,
+            ROAD_LEFT + ROAD_WIDTH - CAR_W - 5
+        )
+    );
+
+    player.y = Math.max(
+        80,
+        Math.min(player.y, HEIGHT - CAR_H - 10)
+    );
+
+    // Move enemy.
+    enemy.y += speed * step;
+
+    if (enemy.y > HEIGHT) {
+        enemy.y = -100;
+        enemy.x = randomLane();
+
+        score++;
+        speed = Math.min(12, 5 + Math.floor(score / 5));
+    }
+
+    // Collision detection.
+    const playerRect = {
+        x: player.x + 4,
+        y: player.y + 4,
+        w: CAR_W - 8,
+        h: CAR_H - 8
+    };
+
+    const enemyRect = {
+        x: enemy.x + 4,
+        y: enemy.y + 4,
+        w: CAR_W - 8,
+        h: CAR_H - 8
+    };
+
+    const collision =
+        playerRect.x < enemyRect.x + enemyRect.w &&
+        playerRect.x + playerRect.w > enemyRect.x &&
+        playerRect.y < enemyRect.y + enemyRect.h &&
+        playerRect.y + playerRect.h > enemyRect.y;
+
+    if (collision) {
+        gameOver = true;
+        running = false;
+
+        highScore = Math.max(highScore, score);
+
+        try {
+            localStorage.setItem("carHighScore", highScore);
+        } catch (e) {}
+
+        return;
+    }
+
+    roadLineY = (roadLineY + speed * step) % 80;
+}
+
+function draw() {
+    drawRoad();
+
+    drawCar(player.x, player.y, "#2882ff");
+    drawCar(enemy.x, enemy.y, "#f02832");
+
+    drawHUD();
+
+    if (!running && !gameOver) {
+        drawMessage("CAR RACING", "Press Start");
+    }
+
+    if (paused) {
+        drawMessage("PAUSED", "Press P to Resume");
+    }
+
+    if (gameOver) {
+        drawMessage("GAME OVER!", "Score: " + score);
+    }
+}
+
+function gameLoop(timestamp) {
+    if (!running || paused || gameOver) {
+        draw();
+        return;
+    }
+
+    if (!lastTime) lastTime = timestamp;
+
+    const delta = Math.min(timestamp - lastTime, 40);
+    lastTime = timestamp;
+
+    update(delta);
+    draw();
+
+    if (running && !paused && !gameOver) {
+        animationId = requestAnimationFrame(gameLoop);
+    }
+}
+
+function togglePause() {
+    if (!running || gameOver) return;
+
+    paused = !paused;
+
+    if (paused) {
+        draw();
+    } else {
+        lastTime = 0;
+        animationId = requestAnimationFrame(gameLoop);
+    }
+}
+
+// Keyboard controls.
+document.addEventListener("keydown", (event) => {
+    const key = event.key.toLowerCase();
+
+    if (["arrowleft", "arrowright", "arrowup", "arrowdown", " "]
+        .includes(key)) {
+        event.preventDefault();
+    }
+
+    if (key === "arrowleft" || key === "a") keys.left = true;
+    if (key === "arrowright" || key === "d") keys.right = true;
+    if (key === "arrowup" || key === "w") keys.up = true;
+    if (key === "arrowdown" || key === "s") keys.down = true;
+
+    if (key === "p") togglePause();
+
+    if (key === "r" && gameOver) resetGame();
+});
+
+document.addEventListener("keyup", (event) => {
+    const key = event.key.toLowerCase();
+
+    if (key === "arrowleft" || key === "a") keys.left = false;
+    if (key === "arrowright" || key === "d") keys.right = false;
+    if (key === "arrowup" || key === "w") keys.up = false;
+    if (key === "arrowdown" || key === "s") keys.down = false;
+});
+
+// Mobile and mouse controls.
+document.querySelectorAll("[data-key]").forEach(button => {
+    const key = button.dataset.key;
+
+    button.addEventListener("pointerdown", event => {
+        event.preventDefault();
+        keys[key] = true;
+        button.setPointerCapture(event.pointerId);
+    });
+
+    function release() {
+        keys[key] = false;
+    }
+
+    button.addEventListener("pointerup", release);
+    button.addEventListener("pointercancel", release);
+    button.addEventListener("lostpointercapture", release);
+});
+
+document.getElementById("startBtn").addEventListener(
+    "click", resetGame
+);
+
+document.getElementById("pauseBtn").addEventListener(
+    "click", togglePause
+);
+
+// Initial screen.
+draw();
+</script>
+
+</body>
+</html>
